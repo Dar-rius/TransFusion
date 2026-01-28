@@ -41,7 +41,7 @@ class Sine_Pytorch(torch.utils.data.Dataset):
                 phase = np.random.uniform(0, 0.1)
                 
                 temp_data = [np.sin(freq*j + phase) for j in range(seq_len)]
-                
+                data
                 temp.append(temp_data)
                 
             temp = np.transpose(np.asarray(temp))
@@ -81,7 +81,7 @@ def data_preprocess(dataset_name):
         
     elif dataset_name == 'stock':
         
-        data = pd.read_csv(f'{data_dir}/GOOG.csv')
+        data = pd.read_csv(f'{data_dir}/metric_market.csv')
         
         data = data.iloc[:, 1:]
         

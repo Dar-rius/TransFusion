@@ -303,13 +303,13 @@ if __name__ == "__main__":
     parser.add_argument(
         '--training_epoch',
         help='Diffusion Training Epoch',
-        default=5000,
+        default=2000,
         type=int)
     
     parser.add_argument(
         '--timesteps',
         help='Timesteps for Diffusion',
-        default=1000,
+        default=2000,
         type=int)
     
     args = parser.parse_args() 
