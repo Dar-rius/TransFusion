@@ -666,7 +666,7 @@ class GaussianDiffusion1D(nn.Module):
 
         return ModelPrediction(pred_noise, x_start)
 
-    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = True):
+    def p_mean_variance(self, x, t, x_self_cond = None, clip_denoised = False):
         preds = self.model_predictions(x, t, x_self_cond)
         x_start = preds.pred_x_start
 
@@ -677,7 +677,7 @@ class GaussianDiffusion1D(nn.Module):
         return model_mean, posterior_variance, posterior_log_variance, x_start
 
     @torch.no_grad()
-    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = True):
+    def p_sample(self, x, t: int, x_self_cond = None, clip_denoised = False):
         b, *_, device = *x.shape, x.device
         batched_times = torch.full((x.shape[0],), t, device = x.device, dtype = torch.long)
         model_mean, _, model_log_variance, x_start = self.p_mean_variance(x = x, t = batched_times, x_self_cond = x_self_cond, clip_denoised = clip_denoised)
@@ -697,7 +697,7 @@ class GaussianDiffusion1D(nn.Module):
             self_cond = x_start if self.self_condition else None
             img, x_start = self.p_sample(img, t, self_cond)
 
-        img = unnormalize_to_zero_to_one(img)
+        #img = unnormalize_to_zero_to_one(img)
         return img
 
     @torch.no_grad()
@@ -733,7 +733,7 @@ class GaussianDiffusion1D(nn.Module):
                   c * pred_noise + \
                   sigma * noise
 
-        img = unnormalize_to_zero_to_one(img)
+        #img = unnormalize_to_zero_to_one(img)
         return img
 
     @torch.no_grad()
@@ -818,7 +818,7 @@ class GaussianDiffusion1D(nn.Module):
         assert n == seq_length, f'seq length must be {seq_length}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        img = normalize_to_neg_one_to_one(img)
+        #img = normalize_to_neg_one_to_one(img)
         
         # print(f'shape after normalizing: {img.shape}')
         return self.p_losses(img, t, *args, **kwargs)

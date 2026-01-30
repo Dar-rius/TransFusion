@@ -5,6 +5,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.preprocessing import StandardScaler
 
 import time
 import os
@@ -61,8 +62,7 @@ def visualize(ori_data, fake_data, dataset_name, seq_len, save_path, epoch, writ
                 .assign(Data='Real'))
     pca_synthetic = (pd.DataFrame(pca.transform(fake_sample_2d))
                      .assign(Data='Synthetic'))
-    pca_result = pca_real.append(pca_synthetic).rename(
-        columns={0: '1st Component', 1: '2nd Component'})
+    pca_result = pd.concat([pca_real, pca_synthetic]).rename(columns={0: '1st Component', 1: '2nd Component'})
     
     
     ### TSNE
@@ -129,56 +129,64 @@ def main(args):
     beta_schedule = args.beta_schedule
     objective = args.objective
     
+    # 1. Chargement des données
     train_data, test_data = LoadData(dataset_name, seq_len)
     
     train_data, test_data = np.asarray(train_data), np.asarray(test_data)
     
+    N_train, L, C = train_data.shape
+    N_test, _, _ = test_data.shape
+    train_reshaped = train_data.reshape(-1, C)
+    test_reshaped = test_data.reshape(-1, C)
+    # Init and fit scaler in train 
+    scaler = StandardScaler()
+    train_reshaped_norm = scaler.fit_transform(train_reshaped)
+    
+    # Transform data test
+    test_reshaped_norm = scaler.transform(test_reshaped)
+    
+    # shape (N, L, C)
+    train_data = train_reshaped_norm.reshape(N_train, L, C)
+    test_data = test_reshaped_norm.reshape(N_test, L, C)
     features = train_data.shape[2]
     
+    # Transposed (Batch, Channels, Length)
     train_data, test_data = train_data.transpose(0,2,1), test_data.transpose(0,2,1)
     
-    train_loader = torch.utils.data.DataLoader(train_data, batch_size)
-    
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size, shuffle=True) # Shuffle=True est mieux pour le train
     test_loader = torch.utils.data.DataLoader(test_data, len(test_data))
     
+    # Note: scaler real dataset
     real_data = next(iter(test_loader))
     
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"Training on: {device}")
     
     mode = 'diffusion'
-    
     architecture = 'custom-transformers'
-    
     loss_mode = 'l1'
     
     file_name = f'{architecture}-{dataset_name}-{loss_mode}-{beta_schedule}-{seq_len}-{objective}'
-    
     folder_name = f'saved_files/{time.time():.4f}-{file_name}'
     
     pathlib.Path(folder_name).mkdir(parents=True, exist_ok=True) 
     
     gan_fig_dir_path = f'{folder_name}/output/gan'
-    
     pathlib.Path(gan_fig_dir_path).mkdir(parents=True, exist_ok=True)
     
     file_name_gan_fig = f'{file_name}-gan'
-    
+
     with open(f'{folder_name}/params.txt', 'w') as f:
-        
         json.dump(args.__dict__, f, indent=2)
-        
-        f.close() 
     
     writer = SummaryWriter(log_dir = folder_name, comment = f'{file_name}', flush_secs = 45)
     
     
     model = TransEncoder(
-    
         features = features,
         latent_dim = latent_dim,
         num_heads = n_heads,
         num_layers = num_layers
-    
     )
 
     diffusion = GaussianDiffusion1D(
@@ -193,7 +201,6 @@ def main(args):
     diffusion = diffusion.to(device)
 
     lr = 1e-4
-    
     betas = (0.9, 0.99)
 
     optim = torch.optim.Adam(diffusion.parameters(), lr = lr, betas = betas)
@@ -205,37 +212,57 @@ def main(args):
             
             data = data.to(device)
             
-            batch_size = data.shape[0]
-            
             optim.zero_grad()
             
+            # data est déjà normalisé, on l'envoie direct
             loss = diffusion(data)
             
             loss.backward()
             
             optim.step()
             
-            if i%len(train_loader)==0:
-                
+            if i % len(train_loader) == 0:
                 writer.add_scalar('Loss', loss.item(), running_epoch)
                 
-            if i%len(train_loader)==0 and running_epoch%100==0:
-                
+            if i % len(train_loader) == 0 and running_epoch % 100 == 0:
                 print(f'Epoch: {running_epoch+1}, Loss: {loss.item()}')
                 
-            if i%len(train_loader)==0 and running_epoch%500==0:
+            # Visualisation et sauvegarde
+            if i % len(train_loader) == 0 and running_epoch % 500 == 0:
                 
                 with torch.no_grad():
-                    
+                    # Génération (données normalisées)
                     samples = diffusion.sample(len(test_data))
-
                     samples = samples.cpu().numpy()
-
-                    samples = samples.transpose(0, 2, 1)
                     
-                    np.save(f'{folder_name}/synth-{dataset_name}-{seq_len}-{running_epoch}.npy', samples)
+                    # Inverse Transform pour la visualisation
+                    # 1. Remettre en (N, L, C) pour le scaler
+                    samples_reshaped = samples.transpose(0, 2, 1).reshape(-1, C)
+                    real_data_reshaped = real_data.cpu().numpy().transpose(0, 2, 1).reshape(-1, C)
                     
-                visualize(real_data.cpu().numpy().transpose(0,2,1), samples, dataset_name, seq_len, gan_fig_dir_path, running_epoch, writer)
+                    # 2. Inverser la normalisation
+                    samples_inverse = scaler.inverse_transform(samples_reshaped)
+                    real_inverse = scaler.inverse_transform(real_data_reshaped)
+                    
+                    # 3. Remettre en (N, C, L) pour la sauvegarde/visualisation standard
+                    # Ou (N, L, C) selon ce que attend votre fonction visualize
+                    # Ici je remets en format attendu par visualize: (N, L, C) -> transpose -> (N, C, L)
+                    
+                    samples_to_save = samples_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
+                    real_to_plot = real_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
+                    
+                    # Sauvegarde des données brutes (échelle réelle)
+                    np.save(f'{folder_name}/synth-{dataset_name}-{seq_len}-{running_epoch}.npy', samples_to_save)
+                    
+                    # Visualisation avec les vraies échelles
+                    visualize(
+                        real_to_plot, 
+                        samples_to_save, 
+                        dataset_name, 
+                        seq_len, 
+                        gan_fig_dir_path, 
+                        running_epoch, 
+                        writer)
                 
                 
     torch.save({
@@ -303,13 +330,13 @@ if __name__ == "__main__":
     parser.add_argument(
         '--training_epoch',
         help='Diffusion Training Epoch',
-        default=2000,
+        default=4100,
         type=int)
     
     parser.add_argument(
         '--timesteps',
         help='Timesteps for Diffusion',
-        default=2000,
+        default=4100,
         type=int)
     
     args = parser.parse_args() 
