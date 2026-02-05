@@ -16,7 +16,7 @@ def generate_plot(synth_data, ori_data):
     plt.savefig("./saved_files/fig.png")
 
 _, original_data= LoadData("stock", 100)
-synthetic_data = np.load("./data/synth-stock-100-21000.npy")
+synthetic_data = np.load("./data/synth-stock-100-500.npy")
 generate_plot(synthetic_data, original_data)
 
 print("min original data: ", np.min(original_data))

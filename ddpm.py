@@ -290,7 +290,7 @@ class PositionalEncoding(nn.Module):
     
 class TransEncoder(nn.Module):
     
-    def __init__(self, features, latent_dim, num_heads, num_layers = 6, dropout = 0.1, activation = 'gelu', ff_size = 1024):
+    def __init__(self, features, latent_dim, num_heads, num_layers = 6, dropout = 0.1, activation = 'gelu', ff_size = 512):
         
         super().__init__()
 

@@ -180,13 +180,12 @@ def main(args):
         json.dump(args.__dict__, f, indent=2)
     
     writer = SummaryWriter(log_dir = folder_name, comment = f'{file_name}', flush_secs = 45)
-    
-    
+
     model = TransEncoder(
         features = features,
-        latent_dim = latent_dim,
-        num_heads = n_heads,
-        num_layers = num_layers
+        latent_dim = 128,
+        num_heads = 4,
+        num_layers = 4
     )
 
     diffusion = GaussianDiffusion1D(
@@ -204,8 +203,6 @@ def main(args):
     betas = (0.9, 0.99)
 
     optim = torch.optim.Adam(diffusion.parameters(), lr = lr, betas = betas)
-    
-    
     for running_epoch in tqdm(range(epochs)):
         
         for i, data in enumerate(train_loader):
