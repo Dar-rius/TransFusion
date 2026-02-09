@@ -77,17 +77,16 @@ def long_discriminative_score_metrics(ori_data, generated_data):
     loss = nn.functional.binary_cross_entropy_with_logits
 
     # Training step
-    for itt in tqdm(range(iterations)):
+    for _ in tqdm(range(iterations)):
         d_optimizer.zero_grad()
-            
         # Batch setting
         no = len(train_x)
         idx = torch.randperm(no)
-        train_idx = idx[:batch_size] 
+        train_idx = idx[:batch_size]
         X_mb = torch.index_select(train_x, 0, train_idx)
         no = len(train_x_hat)
         idx = torch.randperm(no)
-        train_idx = idx[:batch_size] 
+        train_idx = idx[:batch_size]
         X_hat_mb = torch.index_select(train_x_hat, 0, train_idx)    
         
         X_mb = X_mb.to(device)
