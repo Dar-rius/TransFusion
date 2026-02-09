@@ -1,2 +1,4 @@
 data/
 saved_files/
+model_saved/
+__pycache__/

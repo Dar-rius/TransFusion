@@ -1,26 +1,20 @@
 #Most of the code taken from https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/denoising_diffusion_pytorch_1d.py
-
 import math
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch import nn, einsum
+from einops import rearrange, reduce
+from einops.layers.torch import Rearrange
 from random import random
 from functools import partial
 from collections import namedtuple
-import numpy as np
-
-import torch
-from torch import nn, einsum
-import torch.nn.functional as F
-
-from einops import rearrange, reduce
-from einops.layers.torch import Rearrange
-
 from tqdm.auto import tqdm
 
-# constants
-
+# Constants
 ModelPrediction =  namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
 
-# helpers functions
-
+# Helpers functions
 def exists(x):
     return x is not None
 
@@ -53,16 +47,7 @@ def convert_image_to_fn(img_type, image):
         return image.convert(img_type)
     return image
 
-# normalization functions
-
-def normalize_to_neg_one_to_one(img):
-    return img * 2 - 1
-
-def unnormalize_to_zero_to_one(t):
-    return (t + 1) * 0.5
-
-# small helper modules
-
+# Other helper modules
 class Residual(nn.Module):
     def __init__(self, fn):
         super().__init__()
@@ -73,7 +58,7 @@ class Residual(nn.Module):
 
 def Upsample(dim, dim_out = None):
     return nn.Sequential(
-        nn.Upsample(scale_factor = 2, mode = 'nearest'),
+        nn.Upsample(scale_factor=2, mode='nearest'),
         nn.Conv1d(dim, default(dim_out, dim), 3, padding = 1)
     )
 
@@ -92,7 +77,6 @@ class WeightStandardizedConv2d(nn.Conv1d):
         mean = reduce(weight, 'o ... -> o 1 1', 'mean')
         var = reduce(weight, 'o ... -> o 1 1', partial(torch.var, unbiased = False))
         normalized_weight = (weight - mean) * (var + eps).rsqrt()
-
         return F.conv1d(x, normalized_weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
 
 class LayerNorm(nn.Module):
@@ -116,8 +100,7 @@ class PreNorm(nn.Module):
         x = self.norm(x)
         return self.fn(x)
 
-# sinusoidal positional embeds
-
+# Sinusoidal positional embeds
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -150,7 +133,6 @@ class RandomOrLearnedSinusoidalPosEmb(nn.Module):
         return fouriered
 
 # building block modules
-
 class Block(nn.Module):
     def __init__(self, dim, dim_out, groups = 8):
         super().__init__()
@@ -161,11 +143,9 @@ class Block(nn.Module):
     def forward(self, x, scale_shift = None):
         x = self.proj(x)
         x = self.norm(x)
-
         if exists(scale_shift):
             scale, shift = scale_shift
             x = x * (scale + 1) + shift
-
         x = self.act(x)
         return x
 
@@ -182,17 +162,13 @@ class ResnetBlock(nn.Module):
         self.res_conv = nn.Conv1d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
     def forward(self, x, time_emb = None):
-
         scale_shift = None
         if exists(self.mlp) and exists(time_emb):
             time_emb = self.mlp(time_emb)
             time_emb = rearrange(time_emb, 'b c -> b c 1')
             scale_shift = time_emb.chunk(2, dim = 1)
-
         h = self.block1(x, scale_shift = scale_shift)
-
         h = self.block2(h)
-
         return h + self.res_conv(x)
 
 class LinearAttention(nn.Module):
@@ -202,24 +178,16 @@ class LinearAttention(nn.Module):
         self.heads = heads
         hidden_dim = dim_head * heads
         self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias = False)
-
-        self.to_out = nn.Sequential(
-            nn.Conv1d(hidden_dim, dim, 1),
-            LayerNorm(dim)
-        )
+        self.to_out = nn.Sequential(nn.Conv1d(hidden_dim, dim, 1), LayerNorm(dim))
 
     def forward(self, x):
         b, c, n = x.shape
         qkv = self.to_qkv(x).chunk(3, dim = 1)
         q, k, v = map(lambda t: rearrange(t, 'b (h c) n -> b h c n', h = self.heads), qkv)
-
         q = q.softmax(dim = -2)
         k = k.softmax(dim = -1)
-
         q = q * self.scale        
-
         context = torch.einsum('b h d n, b h e n -> b h d e', k, v)
-
         out = torch.einsum('b h d e, b h d n -> b h e n', context, q)
         out = rearrange(out, 'b h c n -> b (h c) n', h = self.heads)
         return self.to_out(out)
@@ -230,7 +198,6 @@ class Attention(nn.Module):
         self.scale = dim_head ** -0.5
         self.heads = heads
         hidden_dim = dim_head * heads
-
         self.to_qkv = nn.Conv1d(dim, hidden_dim * 3, 1, bias = False)
         self.to_out = nn.Conv1d(hidden_dim, dim, 1)
 
@@ -238,48 +205,39 @@ class Attention(nn.Module):
         b, c, n = x.shape
         qkv = self.to_qkv(x).chunk(3, dim = 1)
         q, k, v = map(lambda t: rearrange(t, 'b (h c) n -> b h c n', h = self.heads), qkv)
-
         q = q * self.scale
-
         sim = einsum('b h d i, b h d j -> b h i j', q, k)
         attn = sim.softmax(dim = -1)
         out = einsum('b h i j, b h d j -> b h i d', attn, v)
-
         out = rearrange(out, 'b h n d -> b (h d) n')
         return self.to_out(out)
 
-# model
-
-    
+# Model
 class TimestepEmbedder(nn.Module):
     def __init__(self, latent_dim, sequence_pos_encoder):
         super().__init__()
         self.latent_dim = latent_dim
         self.sequence_pos_encoder = sequence_pos_encoder
-
         time_embed_dim = self.latent_dim
         self.time_embed = nn.Sequential(
             nn.Linear(self.latent_dim, time_embed_dim),
             nn.SiLU(),
-            nn.Linear(time_embed_dim, time_embed_dim),
-        )
+            nn.Linear(time_embed_dim, time_embed_dim))
 
-    def forward(self, timesteps):
+    def forward(self, timesteps): 
         return self.time_embed(self.sequence_pos_encoder.pe[timesteps]).permute(1, 0, 2)
     
-    
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p=dropout)
-
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-
         self.register_buffer('pe', pe)
 
     def forward(self, x):
@@ -287,75 +245,40 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.shape[0], :]
         return self.dropout(x)
     
-    
 class TransEncoder(nn.Module):
-    
-    def __init__(self, features, latent_dim, num_heads, num_layers = 6, dropout = 0.1, activation = 'gelu', ff_size = 512):
-        
+    def __init__(self, features, latent_dim, num_heads, num_layers = 4, dropout = 0.1, activation = 'gelu', ff_size = 512):
         super().__init__()
-
         self.channels = features
-        
         self.self_condition = None
-
         self.latent_dim  = latent_dim
-
         self.num_heads = num_heads
-
         self.ff_size = ff_size
-
         self.activation = activation
-
         self.num_layers = num_layers
-
         self.dropout = dropout
-        
-        
-        
         self.pos_enc = PositionalEncoding(self.latent_dim)
-        
         self.emb_timestep = TimestepEmbedder(self.latent_dim, self.pos_enc)
-        
         self.input_dim = nn.Linear(self.channels, self.latent_dim)
-        
         self.output_dim = nn.Linear(self.latent_dim, self.channels)
-        
         self.TransEncLayer = nn.TransformerEncoderLayer(d_model=self.latent_dim,
                                                   nhead=self.num_heads,
                                                   dim_feedforward=self.ff_size,
                                                   dropout=self.dropout,
                                                   activation=self.activation)
-
         self.TransEncodeR = nn.TransformerEncoder(self.TransEncLayer,
                                                      num_layers=self.num_layers)
         
-        
-    def forward(self, x, t, x_self_cond = None):
-        
+    def forward(self, x, t, x_self_cond=None):
         x = torch.transpose(x, 1, 2)
-        
         x = self.input_dim(x)
-        
         x = torch.transpose(x, 0, 1)
-        
         embed = self.emb_timestep(t)
-        
         time_added_data = torch.cat((embed, x), axis = 0)
-        
         time_added_data = self.pos_enc(time_added_data)
-        
         trans_output = self.TransEncodeR(time_added_data)[1:]
-        
         final_output = self.output_dim(trans_output)
-        
         transposed_data = final_output.permute(1, 2, 0)
-        
         return transposed_data
-
-
-
-
-#####
 
 class Unet1D(nn.Module):
     def __init__(
@@ -373,27 +296,16 @@ class Unet1D(nn.Module):
         learned_sinusoidal_dim = 16
     ):
         super().__init__()
-
-        # determine dimensions
-
         self.channels = channels
         self.self_condition = self_condition
         input_channels = channels * (2 if self_condition else 1)
-
         init_dim = default(init_dim, dim)
         self.init_conv = nn.Conv1d(input_channels, init_dim, 7, padding = 3)
-
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
-
         block_klass = partial(ResnetBlock, groups = resnet_block_groups)
-
-        # time embeddings
-
         time_dim = dim * 4
-
         self.random_or_learned_sinusoidal_cond = learned_sinusoidal_cond or random_fourier_features
-
         if self.random_or_learned_sinusoidal_cond:
             sinu_pos_emb = RandomOrLearnedSinusoidalPosEmb(learned_sinusoidal_dim, random_fourier_features)
             fourier_dim = learned_sinusoidal_dim + 1
@@ -407,13 +319,9 @@ class Unet1D(nn.Module):
             nn.GELU(),
             nn.Linear(time_dim, time_dim)
         )
-
-        # layers
-
         self.downs = nn.ModuleList([])
         self.ups = nn.ModuleList([])
         num_resolutions = len(in_out)
-
         for ind, (dim_in, dim_out) in enumerate(in_out):
             is_last = ind >= (num_resolutions - 1)
 
@@ -487,7 +395,6 @@ class Unet1D(nn.Module):
         return self.final_conv(x)
 
 # gaussian diffusion trainer class
-
 def extract(a, t, x_shape):
     b, *_ = t.shape
     out = a.gather(-1, t)
