@@ -9,14 +9,6 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split
 
 
-def normalize(data):
-    min_val = np.min(np.min(data, axis=0), axis=0)
-    data = data - min_val
-    max_val = np.max(np.max(data, axis=0), axis=0)
-    data = data / (max_val + 1e-7)
-    data = data.astype(np.float32)
-    return data
-
 def data_preprocess(file: str):
     data = pd.read_csv(f'data/{file}')
     data = data.iloc[:, 1:]
@@ -26,10 +18,9 @@ class MakeDATA(torch.utils.data.Dataset):
     def __init__(self, data, seq_len):
         data = np.asarray(data, dtype= np.float32)
         data = data[::-1]
-        data_norm = normalize(data)
         seq_data = []
-        for i in range(len(data_norm) - seq_len + 1):
-            x = data_norm[i : i + seq_len]
+        for i in range(len(data) - seq_len + 1):
+            x = data[i : i + seq_len]
             seq_data.append(x)
         self.samples = []
         idx = torch.randperm(len(seq_data))
