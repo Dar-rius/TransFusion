@@ -18,9 +18,7 @@ def long_predictive_score_metrics(ori_data, generated_data):
 
     # Basic Parameters
     no, seq_len, dim = np.asarray(ori_data).shape
-    print(type(generated_data))
     print(np.asarray(ori_data).shape)
-    generated_data = generated_data.transpose(0, 2, 1)
     print(generated_data.shape)
 
     ## Builde a post-hoc RNN predictive network

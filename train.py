@@ -87,16 +87,16 @@ def main(args):
     train_data, test_data = np.asarray(train_data), np.asarray(test_data)
     N_train, L, C = train_data.shape
     N_test, _, _ = test_data.shape
-    train_reshaped = train_data.reshape(-1, C)
-    test_reshaped = test_data.reshape(-1, C)
+    #train_reshaped = train_data.reshape(-1, C)
+    #test_reshaped = test_data.reshape(-1, C)
     # Init and fit scaler in train
     scaler = MinMaxScaler(feature_range=(-1, 1))
-    train_reshaped_norm = scaler.fit_transform(train_reshaped)
+    #train_reshaped_norm = scaler.fit_transform(train_reshaped)
     # Transform test data
-    test_reshaped_norm = scaler.transform(test_reshaped)
+    #test_reshaped_norm = scaler.transform(test_reshaped)
     # reshape to (N, L, C)
-    train_data = train_reshaped_norm.reshape(N_train, L, C)
-    test_data = test_reshaped_norm.reshape(N_test, L, C)
+    #train_data = train_reshaped_norm.reshape(N_train, L, C)
+    #test_data = test_reshaped_norm.reshape(N_test, L, C)
     # Transposed for (Batch, Channels, Length) -> (N, C, L)
     # Channels refers to features of dataset
     train_data, test_data = train_data.transpose(0,2,1), test_data.transpose(0,2,1)
@@ -151,19 +151,19 @@ def main(args):
                 with torch.no_grad():
                     samples = diffusion.sample(len(test_data))
                     samples = samples.cpu().numpy()
+                    samples = samples.transpose(0, 2, 1)
                     # Transpose data to (N, L, C)
-                    samples_reshaped = samples.transpose(0, 2, 1).reshape(-1, C)
-                    real_data_reshaped = real_data.cpu().numpy().transpose(0, 2, 1).reshape(-1, C)
+                    #samples_reshaped = samples.transpose(0, 2, 1).reshape(-1, C)
+                    #real_data_reshaped = real_data.cpu().numpy().transpose(0, 2, 1).reshape(-1, C)
                     # Reverse the data normalised
-                    samples_inverse = scaler.inverse_transform(samples_reshaped)
-                    print(samples_reshaped[:,1])
-                    real_inverse = scaler.inverse_transform(real_data_reshaped)
+                   # samples_inverse = scaler.inverse_transform(samples_reshaped)
+                    #real_inverse = scaler.inverse_transform(real_data_reshaped)
                     #  Reshape data to (N, C, L)
-                    samples_to_save = samples_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
-                    real_to_plot = real_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
+                    #samples_to_save = samples_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
+                    #real_to_plot = real_inverse.reshape(len(test_data), seq_len, C).transpose(0, 2, 1)
                     # Save data
-                    np.save(f'./{folder_name}/synth-{running_epoch}.npy', samples_to_save)
-                    visualize(real_to_plot, samples_to_save, seq_len, output, running_epoch, writer)
+                    np.save(f'./{folder_name}/synth-{running_epoch}.npy', samples)
+                visualize(real_data.cpu().numpy().transpose(0,2,1), samples, seq_len, output, running_epoch, writer)
 
     torch.save({'diffusion_state_dict': diffusion.state_dict(),
         'diffusion_optim_state_dict': optim.state_dict()},
